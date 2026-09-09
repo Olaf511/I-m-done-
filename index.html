@@ -42,22 +42,22 @@
   @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@500;700;900&family=Space+Mono:wght@400;700&family=Noto+Sans+TC:wght@400;500;700&display=swap');
 
   :root{
-    --paper: #ece2c6;
-    --paper-dark: #e1d3ab;
-    --ink: #2b2620;
-    --ink-soft: #6b6152;
-    --brown-rule: #8a6f45;
-    --stamp-red: #a3402c;
-    --stamp-red-dark: #7e2f20;
-    --success: #4c6b4f;
-    --cell-empty: #f6efdb;
+    --paper: #fdf8ec;
+    --paper-dark: #f3e9d3;
+    --ink: #3c4c5e;
+    --ink-soft: #82909c;
+    --line-soft: #b9d1e0;
+    --stamp-red: #d97a68;
+    --stamp-red-dark: #b45947;
+    --success: #6fa39a;
+    --cell-empty: #fffdf6;
   }
 
   *{ box-sizing: border-box; }
 
   html, body{
     margin:0; padding:0; min-height:100vh;
-    background-color: #d8ccae;
+    background-color: #cfe3ee;
     background-image: url('background.jpg');
     background-repeat: no-repeat;
     background-position: center center;
@@ -74,12 +74,12 @@
     position:relative;
     background: var(--paper);
     border: 2px solid var(--ink);
-    box-shadow: 0 1px 0 var(--brown-rule) inset, 6px 6px 0 rgba(43,38,32,0.15);
+    box-shadow: 0 1px 0 var(--line-soft) inset, 6px 6px 0 rgba(60,76,94,0.14);
     padding: 28px 26px 24px;
   }
   .card::before{
     content:""; position:absolute; inset: 8px;
-    border: 1px solid var(--brown-rule); pointer-events:none;
+    border: 1px solid var(--line-soft); pointer-events:none;
   }
 
   .doc-no{
@@ -95,7 +95,7 @@
   .subtitle{
     font-size: 13.5px; color: var(--ink-soft); line-height: 1.6;
     margin: 0 0 20px; padding-bottom: 18px;
-    border-bottom: 1px dashed var(--brown-rule);
+    border-bottom: 1px dashed var(--line-soft);
   }
 
   .status-row{
@@ -111,7 +111,7 @@
   }
   .conn-dot{
     display:inline-block; width:6px; height:6px; border-radius:50%;
-    background: #b5a072; margin-right:5px; position:relative; top:-1px;
+    background: #b9c6cf; margin-right:5px; position:relative; top:-1px;
   }
   .conn-dot.ok{ background: var(--success); }
   .conn-dot.err{ background: var(--stamp-red); }
@@ -123,15 +123,15 @@
 
   .cell{
     position:relative; aspect-ratio: 1/1;
-    border: 1.5px dashed var(--brown-rule);
+    border: 1.5px dashed var(--line-soft);
     background: var(--cell-empty);
     display:flex; flex-direction:column; align-items:center; justify-content:center;
     cursor:pointer; user-select:none;
     transition: background 0.15s ease, transform 0.1s ease;
   }
-  .cell:hover{ background:#fbf6e8; }
+  .cell:hover{ background:#fffaf0; }
   .cell:active{ transform: scale(0.94); }
-  .cell .idx{ font-family:'Space Mono', monospace; font-size: 12px; color: #b7ab8e; }
+  .cell .idx{ font-family:'Space Mono', monospace; font-size: 12px; color: #c3cdd4; }
 
   .cell.stamped{ border-style: solid; border-color: var(--paper-dark); }
 
@@ -150,7 +150,7 @@
 
   .footer-row{
     display:flex; align-items:center; justify-content: space-between; gap: 10px;
-    padding-top: 14px; border-top: 1px dashed var(--brown-rule);
+    padding-top: 14px; border-top: 1px dashed var(--line-soft);
   }
   .sync-note{ font-size: 11px; color: var(--ink-soft); line-height:1.5; }
 
@@ -171,7 +171,7 @@
 
   /* ---- 蓋章 / 詳情彈窗 ---- */
   .overlay{
-    position: fixed; inset:0; background: rgba(43,38,32,0.55);
+    position: fixed; inset:0; background: rgba(60,76,94,0.45);
     display:none; align-items:center; justify-content:center; padding: 20px; z-index: 10;
   }
   .overlay.show{ display:flex; }
@@ -179,10 +179,10 @@
   .modal{
     background: var(--paper); border: 2px solid var(--ink);
     max-width: 360px; width:100%; padding: 26px 24px; position:relative;
-    box-shadow: 6px 6px 0 rgba(43,38,32,0.2);
+    box-shadow: 6px 6px 0 rgba(60,76,94,0.18);
   }
   .modal::before{
-    content:""; position:absolute; inset:8px; border: 1px solid var(--brown-rule);
+    content:""; position:absolute; inset:8px; border: 1px solid var(--line-soft);
     pointer-events: none;
   }
   .modal h2{
@@ -196,7 +196,7 @@
   }
   .field input, .field textarea{
     width: 100%; font-family:'Noto Sans TC', sans-serif; font-size: 14px;
-    background: #fff; border: 1px solid var(--brown-rule); padding: 8px 10px;
+    background: #fff; border: 1px solid var(--line-soft); padding: 8px 10px;
     color: var(--ink);
   }
   .field textarea{ resize: vertical; min-height: 56px; }
@@ -211,7 +211,7 @@
   .btn-danger{ background: transparent; color: var(--stamp-red-dark); border-color: var(--stamp-red-dark); }
 
   .detail-reason{
-    background: #fff; border: 1px dashed var(--brown-rule);
+    background: #fff; border: 1px dashed var(--line-soft);
     padding: 10px 12px; font-size: 13.5px; color: var(--ink);
     line-height: 1.6; margin-bottom: 18px; text-align:left; white-space: pre-wrap;
   }
