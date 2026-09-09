@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>離職集點卡</title>
+
+<!--
+  ============================================================
+  設定說明（部署前請先做這一步，只需要做一次）
+  ============================================================
+  1. 到 https://console.firebase.google.com 建立一個新專案（免費）
+  2. 左側選單 Build > Realtime Database > 建立資料庫
+     - 位置隨意（例如 asia-southeast1）
+     - 規則先選「測試模式」(test mode)，之後可依下方建議調整
+  3. 左側選單「專案設定」(齒輪圖示) > 一般 > 你的應用程式 > 新增網頁應用程式
+     - 複製它給你的 firebaseConfig 物件
+  4. 貼到下面 CONFIG 區塊，取代 REPLACE_ME 那些值
+  5. Realtime Database 的「規則」(Rules) 分頁，建議設定成：
+     {
+       "rules": {
+         "resignation-card": {
+           ".read": true,
+           ".write": true
+         }
+       }
+     }
+     這樣任何人都能讀寫這張卡（因為要做到「免登入、拿到連結就同步」，
+     本來就無法限制身分，請注意這代表任何知道網址的人都能蓋章或清空，
+     單純好玩用途沒問題，但不要放真正機密的資料進去）
+  6. 把這個檔案命名為 index.html，放進你的 GitHub repo，
+     打開 repo Settings > Pages，Source 選這個分支，存檔後
+     GitHub 會給你一個網址，例如 https://yourname.github.io/repo/
+     那個網址就是可以分享出去、大家都同步的集點卡
+  ============================================================
+-->
+
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-database-compat.js"></script>
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@500;700;900&family=Space+Mono:wght@400;700&family=Noto+Sans+TC:wght@400;500;700&display=swap');
+
+  :root{
+    --paper: #ece2c6;
+    --paper-dark: #e1d3ab;
+    --ink: #2b2620;
+    --ink-soft: #6b6152;
+    --brown-rule: #8a6f45;
+    --stamp-red: #a3402c;
+    --stamp-red-dark: #7e2f20;
+    --success: #4c6b4f;
+    --cell-empty: #f6efdb;
+  }
+
+  *{ box-sizing: border-box; }
+
+  html, body{
+    margin:0; padding:0; min-height:100%;
+    background: #d8ccae;
+    background-image:
+      radial-gradient(circle at 20% 20%, rgba(255,255,255,0.15), transparent 40%),
+      radial-gradient(circle at 80% 85%, rgba(0,0,0,0.06), transparent 45%);
+    font-family: 'Noto Sans TC', sans-serif;
+    color: var(--ink);
+    display:flex; justify-content:center;
+    padding: 32px 16px 60px;
+  }
+
+  .sheet{ width: 100%; max-width: 460px; }
+
+  .card{
+    position:relative;
+    background: var(--paper);
+    border: 2px solid var(--ink);
+    box-shadow: 0 1px 0 var(--brown-rule) inset, 6px 6px 0 rgba(43,38,32,0.15);
+    padding: 28px 26px 24px;
+  }
+  .card::before{
+    content:""; position:absolute; inset: 8px;
+    border: 1px solid var(--brown-rule); pointer-events:none;
+  }
+
+  .doc-no{
+    font-family:'Space Mono', monospace; font-size: 11px;
+    color: var(--ink-soft); letter-spacing: 0.5px; margin-bottom: 4px;
+  }
+
+  h1{
+    font-family: 'Noto Serif TC', serif; font-weight: 900;
+    font-size: 30px; line-height: 1.25; margin: 0 0 6px; letter-spacing: 2px;
+  }
+
+  .subtitle{
+    font-size: 13.5px; color: var(--ink-soft); line-height: 1.6;
+    margin: 0 0 20px; padding-bottom: 18px;
+    border-bottom: 1px dashed var(--brown-rule);
+  }
+
+  .status-row{
+    display:flex; align-items:baseline; justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .count{ font-family:'Space Mono', monospace; font-size: 15px; }
+  .count b{ font-size: 20px; }
+
+  .conn-state{
+    font-size: 11.5px;
+    color: var(--ink-soft);
+  }
+  .conn-dot{
+    display:inline-block; width:6px; height:6px; border-radius:50%;
+    background: #b5a072; margin-right:5px; position:relative; top:-1px;
+  }
+  .conn-dot.ok{ background: var(--success); }
+  .conn-dot.err{ background: var(--stamp-red); }
+
+  .grid{
+    display:grid; grid-template-columns: repeat(5, 1fr);
+    gap: 10px; margin-bottom: 18px;
+  }
+
+  .cell{
+    position:relative; aspect-ratio: 1/1;
+    border: 1.5px dashed var(--brown-rule);
+    background: var(--cell-empty);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    cursor:pointer; user-select:none;
+    transition: background 0.15s ease, transform 0.1s ease;
+  }
+  .cell:hover{ background:#fbf6e8; }
+  .cell:active{ transform: scale(0.94); }
+  .cell .idx{ font-family:'Space Mono', monospace; font-size: 12px; color: #b7ab8e; }
+
+  .cell.stamped{ border-style: solid; border-color: var(--paper-dark); }
+
+  .stamp-mark{
+    position:absolute; top:3px; left:3px; right:3px; bottom:14px;
+    border: 2.5px solid var(--stamp-red); border-radius: 50%;
+    display:flex; align-items:center; justify-content:center;
+    color: var(--stamp-red); font-family:'Noto Serif TC', serif;
+    font-weight: 900; font-size: 20px; opacity: 0.9;
+    mix-blend-mode: multiply;
+  }
+  .stamp-date{
+    position:absolute; bottom:2px; left:0; right:0; text-align:center;
+    font-family:'Space Mono', monospace; font-size: 8.5px; color: var(--ink-soft);
+  }
+
+  .footer-row{
+    display:flex; align-items:center; justify-content: space-between; gap: 10px;
+    padding-top: 14px; border-top: 1px dashed var(--brown-rule);
+  }
+  .sync-note{ font-size: 11px; color: var(--ink-soft); line-height:1.5; }
+
+  .reset-btn{
+    font-family:'Noto Sans TC', sans-serif; font-size: 12px;
+    background: transparent; border: 1px solid var(--ink-soft); color: var(--ink-soft);
+    padding: 6px 12px; cursor:pointer; white-space: nowrap;
+  }
+  .reset-btn:hover{ border-color: var(--ink); color: var(--ink); }
+
+  .seal{
+    position:absolute; top: 18px; right: 22px; width: 62px; height: 62px;
+    border: 2px solid var(--success); border-radius: 50%; color: var(--success);
+    display:flex; align-items:center; justify-content:center; text-align:center;
+    font-family:'Noto Serif TC', serif; font-weight:900; font-size: 13px; line-height:1.3;
+    transform: rotate(-14deg); opacity: 0.85; mix-blend-mode: multiply;
+  }
+
+  /* ---- 蓋章 / 詳情彈窗 ---- */
+  .overlay{
+    position: fixed; inset:0; background: rgba(43,38,32,0.55);
+    display:none; align-items:center; justify-content:center; padding: 20px; z-index: 10;
+  }
+  .overlay.show{ display:flex; }
+
+  .modal{
+    background: var(--paper); border: 2px solid var(--ink);
+    max-width: 360px; width:100%; padding: 26px 24px; position:relative;
+    box-shadow: 6px 6px 0 rgba(43,38,32,0.2);
+  }
+  .modal::before{
+    content:""; position:absolute; inset:8px; border: 1px solid var(--brown-rule);
+  }
+  .modal h2{
+    font-family:'Noto Serif TC', serif; font-size: 19px; margin: 4px 0 16px; text-align:center;
+  }
+  .modal p{ font-size: 13.5px; color: var(--ink-soft); line-height: 1.7; margin: 0 0 18px; text-align:center; }
+
+  .field{ margin-bottom: 14px; }
+  .field label{
+    display:block; font-size: 12px; color: var(--ink-soft); margin-bottom: 5px;
+  }
+  .field input, .field textarea{
+    width: 100%; font-family:'Noto Sans TC', sans-serif; font-size: 14px;
+    background: #fff; border: 1px solid var(--brown-rule); padding: 8px 10px;
+    color: var(--ink);
+  }
+  .field textarea{ resize: vertical; min-height: 56px; }
+
+  .modal-actions{ display:flex; gap: 10px; margin-top: 4px; }
+  .modal-actions button{
+    flex:1; font-family:'Noto Sans TC', sans-serif; font-size: 13px;
+    padding: 10px 0; cursor:pointer; border: 1px solid var(--ink);
+  }
+  .btn-primary{ background: var(--ink); color: var(--paper); }
+  .btn-secondary{ background: transparent; color: var(--ink); }
+  .btn-danger{ background: transparent; color: var(--stamp-red-dark); border-color: var(--stamp-red-dark); }
+
+  .detail-reason{
+    background: #fff; border: 1px dashed var(--brown-rule);
+    padding: 10px 12px; font-size: 13.5px; color: var(--ink);
+    line-height: 1.6; margin-bottom: 18px; text-align:left; white-space: pre-wrap;
+  }
+  .detail-date{
+    font-family:'Space Mono', monospace; font-size: 12px; color: var(--ink-soft);
+    margin-bottom: 10px; text-align:left;
+  }
+
+  @media (max-width: 380px){
+    h1{ font-size: 24px; letter-spacing: 1px; }
+    .card{ padding: 22px 16px 18px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="sheet">
+  <div class="card">
+    <div class="seal" id="seal" style="display:none;">職場<br>自由</div>
+    <div class="doc-no">FORM NO. 離-30 ・ 每格記錄一次「快受不了了」的瞬間</div>
+    <h1>離　職　集　點　卡</h1>
+    <p class="subtitle">集滿 30 點，即可兌換一次「說走就走」的資格。點空格蓋章，記下日期與原因。</p>
+
+    <div class="status-row">
+      <div class="count">已集點 <b id="countNum">0</b> / 30</div>
+      <div class="conn-state"><span class="conn-dot" id="connDot"></span><span id="connText">連線中…</span></div>
+    </div>
+
+    <div class="grid" id="grid"></div>
+
+    <div class="footer-row">
+      <div class="sync-note">用 Firebase 即時同步，任何人打開這個網址都是同一份進度</div>
+      <button class="reset-btn" id="resetBtn">重置</button>
+    </div>
+  </div>
+</div>
+
+<!-- 蓋章輸入視窗 -->
+<div class="overlay" id="addOverlay">
+  <div class="modal">
+    <h2>蓋一次章</h2>
+    <div class="field">
+      <label for="stampDate">日期</label>
+      <input type="date" id="stampDate">
+    </div>
+    <div class="field">
+      <label for="stampReason">為什麼蓋這一章？</label>
+      <textarea id="stampReason" placeholder="例如：又被已讀不回、開會開到懷疑人生…"></textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="cancelAdd">取消</button>
+      <button class="btn-primary" id="confirmAdd">蓋章</button>
+    </div>
+  </div>
+</div>
+
+<!-- 已蓋章詳情視窗 -->
+<div class="overlay" id="detailOverlay">
+  <div class="modal">
+    <h2>這一章的紀錄</h2>
+    <div class="detail-date" id="detailDate"></div>
+    <div class="detail-reason" id="detailReason"></div>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="closeDetail">關閉</button>
+      <button class="btn-danger" id="deleteStamp">取消這一章</button>
+    </div>
+  </div>
+</div>
+
+<!-- 集滿證書 -->
+<div class="overlay" id="gradOverlay">
+  <div class="modal">
+    <h2>🎉 集點卡已蓋滿</h2>
+    <p>30 格全部蓋章完成。<br>職場自由已解鎖，祝你遞辭呈遞得漂亮。</p>
+    <div class="modal-actions">
+      <button class="btn-primary" id="closeGrad" style="flex:none; padding:10px 24px; margin:0 auto;">關閉</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   在這裡貼上你自己 Firebase 專案的設定（步驟見檔案最上方的說明）
+   ============================================================ */
+const firebaseConfig = {
+  apiKey: "AIzaSyBUfU-6426DzyZ1fv_SmXnfAZje3dYtSNo",
+  authDomain: "resignation-card.firebaseapp.com",
+  databaseURL: "https://resignation-card-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:  "resignation-card",
+  storageBucket: "resignation-card.firebasestorage.app",
+  messagingSenderId: "468409357745",
+  appId: "1:468409357745:web:1923fd988aff3ac0fa9990"
+};
+
+const TOTAL = 30;
+const DB_PATH = "resignation-card/stamps";
+
+let state = Array.from({length: TOTAL}, () => null); // null = 空格，物件 = { date, reason, rot }
+let celebrated = false;
+let pendingIndex = null;
+let firebaseReady = false;
+let stampsRef = null;
+
+const grid = document.getElementById('grid');
+const countNum = document.getElementById('countNum');
+const seal = document.getElementById('seal');
+const connDot = document.getElementById('connDot');
+const connText = document.getElementById('connText');
+
+const addOverlay = document.getElementById('addOverlay');
+const detailOverlay = document.getElementById('detailOverlay');
+const gradOverlay = document.getElementById('gradOverlay');
+const stampDateInput = document.getElementById('stampDate');
+const stampReasonInput = document.getElementById('stampReason');
+
+function todayStr(){
+  const d = new Date();
+  const mm = String(d.getMonth()+1).padStart(2,'0');
+  const dd = String(d.getDate()).padStart(2,'0');
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
+function shortDate(dateStr){
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  return parts.length === 3 ? `${parts[1]}/${parts[2]}` : dateStr;
+}
+
+function buildGrid(){
+  grid.innerHTML = '';
+  state.forEach((cell, i) => {
+    const div = document.createElement('div');
+    div.className = 'cell' + (cell ? ' stamped' : '');
+    if (cell){
+      const mark = document.createElement('div');
+      mark.className = 'stamp-mark';
+      mark.style.transform = `rotate(${cell.rot || 0}deg)`;
+      mark.textContent = '辭';
+      div.appendChild(mark);
+      const dateEl = document.createElement('div');
+      dateEl.className = 'stamp-date';
+      dateEl.textContent = shortDate(cell.date);
+      div.appendChild(dateEl);
+      div.addEventListener('click', () => openDetail(i));
+    } else {
+      const idx = document.createElement('span');
+      idx.className = 'idx';
+      idx.textContent = i + 1;
+      div.appendChild(idx);
+      div.addEventListener('click', () => openAdd(i));
+    }
+    grid.appendChild(div);
+  });
+  const count = state.filter(Boolean).length;
+  countNum.textContent = count;
+  seal.style.display = count === TOTAL ? 'flex' : 'none';
+}
+
+function maybeCelebrate(){
+  const count = state.filter(Boolean).length;
+  if (count === TOTAL && !celebrated){
+    celebrated = true;
+    gradOverlay.classList.add('show');
+  } else if (count < TOTAL){
+    celebrated = false;
+  }
+}
+
+/* ---------- 寫入 / 刪除 / 重置：Firebase 就緒時同步，否則本機示範 ---------- */
+function commitStamp(index, payload){
+  if (firebaseReady){
+    stampsRef.child(index).set(payload)
+      .catch(err => alert('寫入失敗，請檢查 Firebase 規則設定：' + err.message));
+  } else {
+    state[index] = payload;
+    buildGrid();
+    maybeCelebrate();
+  }
+}
+
+function removeStamp(index){
+  if (firebaseReady){
+    stampsRef.child(index).remove()
+      .catch(err => alert('刪除失敗：' + err.message));
+  } else {
+    state[index] = null;
+    buildGrid();
+  }
+}
+
+function resetAll(){
+  if (firebaseReady){
+    stampsRef.set(null).catch(err => alert('重置失敗：' + err.message));
+  } else {
+    state = Array.from({length: TOTAL}, () => null);
+    buildGrid();
+  }
+}
+
+/* ---------- 蓋章 ---------- */
+function openAdd(i){
+  pendingIndex = i;
+  stampDateInput.value = todayStr();
+  stampReasonInput.value = '';
+  addOverlay.classList.add('show');
+  stampReasonInput.focus();
+}
+
+document.getElementById('cancelAdd').addEventListener('click', () => {
+  addOverlay.classList.remove('show');
+  pendingIndex = null;
+});
+
+document.getElementById('confirmAdd').addEventListener('click', () => {
+  if (pendingIndex === null) return;
+  const date = stampDateInput.value || todayStr();
+  const reason = stampReasonInput.value.trim();
+  const rot = Math.round((Math.random()*16)-8);
+  commitStamp(pendingIndex, { date, reason, rot });
+  addOverlay.classList.remove('show');
+  pendingIndex = null;
+});
+
+/* ---------- 已蓋章詳情 ---------- */
+function openDetail(i){
+  pendingIndex = i;
+  const cell = state[i];
+  document.getElementById('detailDate').textContent = '蓋章日期：' + (cell.date || '（未填）');
+  document.getElementById('detailReason').textContent = cell.reason ? cell.reason : '（沒有寫原因）';
+  detailOverlay.classList.add('show');
+}
+
+document.getElementById('closeDetail').addEventListener('click', () => {
+  detailOverlay.classList.remove('show');
+  pendingIndex = null;
+});
+
+document.getElementById('deleteStamp').addEventListener('click', () => {
+  if (pendingIndex === null) return;
+  if (!confirm('確定要取消這一格的蓋章紀錄嗎？')) return;
+  removeStamp(pendingIndex);
+  detailOverlay.classList.remove('show');
+  pendingIndex = null;
+});
+
+/* ---------- 重置整張卡 ---------- */
+document.getElementById('resetBtn').addEventListener('click', () => {
+  if (!confirm('確定要重置整張集點卡嗎？這會清空所有人的進度，且無法復原。')) return;
+  resetAll();
+});
+
+document.getElementById('closeGrad').addEventListener('click', () => {
+  gradOverlay.classList.remove('show');
+});
+
+/* ---------- 一律先畫出介面，確保按鈕一定能互動 ---------- */
+buildGrid();
+connDot.className = 'conn-dot';
+connText.textContent = '尚未連線 Firebase（示範模式，不會同步）';
+
+/* ---------- 嘗試連線 Firebase，失敗也不影響上面的介面 ---------- */
+function isConfigComplete(cfg){
+  return Object.values(cfg).every(v => typeof v === 'string' && v.indexOf('REPLACE_ME') === -1);
+}
+
+if (!isConfigComplete(firebaseConfig)){
+  connText.textContent = '尚未設定 Firebase（目前是示範模式，請依檔案開頭教學設定後才會同步）';
+} else if (typeof firebase === 'undefined'){
+  connDot.className = 'conn-dot err';
+  connText.textContent = '無法載入 Firebase 程式庫（可能被網路擋住），目前是示範模式';
+} else {
+  try{
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+    stampsRef = db.ref(DB_PATH);
+    firebaseReady = true;
+
+    stampsRef.on('value', (snapshot) => {
+      const data = snapshot.val() || {};
+      state = Array.from({length: TOTAL}, (_, i) => data[i] || null);
+      buildGrid();
+      maybeCelebrate();
+    }, (err) => {
+      connDot.className = 'conn-dot err';
+      connText.textContent = '讀取失敗，請檢查 Firebase 規則設定';
+      console.error(err);
+    });
+
+    db.ref('.info/connected').on('value', (snap) => {
+      if (snap.val() === true){
+        connDot.className = 'conn-dot ok';
+        connText.textContent = '已連線同步';
+      } else {
+        connDot.className = 'conn-dot';
+        connText.textContent = '連線中…';
+      }
+    });
+  } catch(err){
+    connDot.className = 'conn-dot err';
+    connText.textContent = '連線失敗：' + err.message + '（目前是示範模式）';
+    console.error(err);
+  }
+}
+</script>
+
+</body>
+</html>
