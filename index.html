@@ -182,6 +182,7 @@
   }
   .modal::before{
     content:""; position:absolute; inset:8px; border: 1px solid var(--brown-rule);
+    pointer-events: none;
   }
   .modal h2{
     font-family:'Noto Serif TC', serif; font-size: 19px; margin: 4px 0 16px; text-align:center;
@@ -229,9 +230,8 @@
 <div class="sheet">
   <div class="card">
     <div class="seal" id="seal" style="display:none;">職場<br>自由</div>
-    <div class="doc-no">FORM NO. 離-30 ・ 每格記錄一次「快受不了了」的瞬間</div>
     <h1>離　職　集　點　卡</h1>
-    <p class="subtitle">集滿 30 點，即可兌換一次「說走就走」的資格。點空格蓋章，記下日期與原因。</p>
+    <p class="subtitle">集滿 30 點，即可兌換一次「說走就走」的資格。</p>
 
     <div class="status-row">
       <div class="count">已集點 <b id="countNum">0</b> / 30</div>
@@ -241,7 +241,7 @@
     <div class="grid" id="grid"></div>
 
     <div class="footer-row">
-      <div class="sync-note">用 Firebase 即時同步，任何人打開這個網址都是同一份進度</div>
+      <div class="sync-note"></div>
       <button class="reset-btn" id="resetBtn">重置</button>
     </div>
   </div>
@@ -250,14 +250,14 @@
 <!-- 蓋章輸入視窗 -->
 <div class="overlay" id="addOverlay">
   <div class="modal">
-    <h2>蓋一次章</h2>
+    <h2>來吧 說</h2>
     <div class="field">
       <label for="stampDate">日期</label>
       <input type="date" id="stampDate">
     </div>
     <div class="field">
-      <label for="stampReason">為什麼蓋這一章？</label>
-      <textarea id="stampReason" placeholder="例如：又被已讀不回、開會開到懷疑人生…"></textarea>
+      <label for="stampReason">今天受夠什麼了？</label>
+      <textarea id="stampReason" placeholder="例如：開會開到懷疑人生…"></textarea>
     </div>
     <div class="modal-actions">
       <button class="btn-secondary" id="cancelAdd">取消</button>
@@ -274,7 +274,7 @@
     <div class="detail-reason" id="detailReason"></div>
     <div class="modal-actions">
       <button class="btn-secondary" id="closeDetail">關閉</button>
-      <button class="btn-danger" id="deleteStamp">取消這一章</button>
+      <button class="btn-danger" id="deleteStamp">取消，我冷靜了</button>
     </div>
   </div>
 </div>
@@ -286,6 +286,28 @@
     <p>30 格全部蓋章完成。<br>職場自由已解鎖，祝你遞辭呈遞得漂亮。</p>
     <div class="modal-actions">
       <button class="btn-primary" id="closeGrad" style="flex:none; padding:10px 24px; margin:0 auto;">關閉</button>
+    </div>
+  </div>
+</div>
+
+<!-- 順序警告 -->
+<div class="overlay" id="orderOverlay">
+  <div class="modal">
+    <h2 style="font-size: 28px;">照順序啦！</h2>
+    <div class="modal-actions">
+      <button class="btn-primary" id="closeOrder" style="flex:none; padding:10px 24px; margin:0 auto;">知道了</button>
+    </div>
+  </div>
+</div>
+
+<!-- 通用確認彈窗 -->
+<div class="overlay" id="confirmOverlay" style="z-index: 20;">
+  <div class="modal">
+    <h2 id="confirmTitle">要確定喔？</h2>
+    <p id="confirmMsg" style="display:none;"></p>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="confirmNo">取消</button>
+      <button class="btn-danger" id="confirmYes">確定</button>
     </div>
   </div>
 </div>
@@ -307,7 +329,7 @@ const firebaseConfig = {
 const TOTAL = 30;
 const DB_PATH = "resignation-card/stamps";
 
-let state = Array.from({length: TOTAL}, () => null); // null = 空格，物件 = { date, reason, rot }
+let state = []; // 依序蓋章的清單，永遠緊密排列、沒有空隙（陣列長度 = 已蓋章數）
 let celebrated = false;
 let pendingIndex = null;
 let firebaseReady = false;
@@ -322,8 +344,39 @@ const connText = document.getElementById('connText');
 const addOverlay = document.getElementById('addOverlay');
 const detailOverlay = document.getElementById('detailOverlay');
 const gradOverlay = document.getElementById('gradOverlay');
+const orderOverlay = document.getElementById('orderOverlay');
+const confirmOverlay = document.getElementById('confirmOverlay');
+const confirmTitle = document.getElementById('confirmTitle');
+const confirmMsg = document.getElementById('confirmMsg');
 const stampDateInput = document.getElementById('stampDate');
 const stampReasonInput = document.getElementById('stampReason');
+
+let confirmCallback = null;
+
+function askConfirm(callback, title, message){
+  confirmCallback = callback;
+  confirmTitle.textContent = title || '要確定喔？';
+  if (message){
+    confirmMsg.textContent = message;
+    confirmMsg.style.display = 'block';
+  } else {
+    confirmMsg.textContent = '';
+    confirmMsg.style.display = 'none';
+  }
+  confirmOverlay.classList.add('show');
+}
+
+document.getElementById('confirmYes').addEventListener('click', () => {
+  confirmOverlay.classList.remove('show');
+  const cb = confirmCallback;
+  confirmCallback = null;
+  if (cb) cb();
+});
+
+document.getElementById('confirmNo').addEventListener('click', () => {
+  confirmOverlay.classList.remove('show');
+  confirmCallback = null;
+});
 
 function todayStr(){
   const d = new Date();
@@ -340,7 +393,9 @@ function shortDate(dateStr){
 
 function buildGrid(){
   grid.innerHTML = '';
-  state.forEach((cell, i) => {
+  const nextIndex = state.length; // 下一個可以蓋章的位置
+  for (let i = 0; i < TOTAL; i++){
+    const cell = state[i];
     const div = document.createElement('div');
     div.className = 'cell' + (cell ? ' stamped' : '');
     if (cell){
@@ -359,17 +414,22 @@ function buildGrid(){
       idx.className = 'idx';
       idx.textContent = i + 1;
       div.appendChild(idx);
-      div.addEventListener('click', () => openAdd(i));
+      if (i === nextIndex){
+        div.addEventListener('click', () => openAdd(i));
+      } else {
+        div.addEventListener('click', () => {
+          orderOverlay.classList.add('show');
+        });
+      }
     }
     grid.appendChild(div);
-  });
-  const count = state.filter(Boolean).length;
-  countNum.textContent = count;
-  seal.style.display = count === TOTAL ? 'flex' : 'none';
+  }
+  countNum.textContent = state.length;
+  seal.style.display = state.length === TOTAL ? 'flex' : 'none';
 }
 
 function maybeCelebrate(){
-  const count = state.filter(Boolean).length;
+  const count = state.length;
   if (count === TOTAL && !celebrated){
     celebrated = true;
     gradOverlay.classList.add('show');
@@ -378,35 +438,34 @@ function maybeCelebrate(){
   }
 }
 
-/* ---------- 寫入 / 刪除 / 重置：Firebase 就緒時同步，否則本機示範 ---------- */
-function commitStamp(index, payload){
+/* ---------- 寫入 / 刪除 / 重置：Firebase 就緒時同步，否則本機示範 ----------
+   核心規則：state 永遠是「緊密排列、沒有空隙」的清單。
+   新增一律加在最後面；取消某一筆時用 splice 移除，後面的項目自然往前遞補一格。 */
+function syncStamps(newStamps){
   if (firebaseReady){
-    stampsRef.child(index).set(payload)
+    stampsRef.set(newStamps.length ? newStamps : null)
       .catch(err => alert('寫入失敗，請檢查 Firebase 規則設定：' + err.message));
   } else {
-    state[index] = payload;
+    state = newStamps;
     buildGrid();
     maybeCelebrate();
   }
 }
 
+function commitStamp(payload){
+  const next = state.slice();
+  next.push(payload);
+  syncStamps(next);
+}
+
 function removeStamp(index){
-  if (firebaseReady){
-    stampsRef.child(index).remove()
-      .catch(err => alert('刪除失敗：' + err.message));
-  } else {
-    state[index] = null;
-    buildGrid();
-  }
+  const next = state.slice();
+  next.splice(index, 1); // 移除這一筆，後面的項目索引會自動往前一格
+  syncStamps(next);
 }
 
 function resetAll(){
-  if (firebaseReady){
-    stampsRef.set(null).catch(err => alert('重置失敗：' + err.message));
-  } else {
-    state = Array.from({length: TOTAL}, () => null);
-    buildGrid();
-  }
+  syncStamps([]);
 }
 
 /* ---------- 蓋章 ---------- */
@@ -428,7 +487,7 @@ document.getElementById('confirmAdd').addEventListener('click', () => {
   const date = stampDateInput.value || todayStr();
   const reason = stampReasonInput.value.trim();
   const rot = Math.round((Math.random()*16)-8);
-  commitStamp(pendingIndex, { date, reason, rot });
+  commitStamp({ date, reason, rot });
   addOverlay.classList.remove('show');
   pendingIndex = null;
 });
@@ -449,20 +508,24 @@ document.getElementById('closeDetail').addEventListener('click', () => {
 
 document.getElementById('deleteStamp').addEventListener('click', () => {
   if (pendingIndex === null) return;
-  if (!confirm('確定要取消這一格的蓋章紀錄嗎？')) return;
-  removeStamp(pendingIndex);
-  detailOverlay.classList.remove('show');
-  pendingIndex = null;
+  askConfirm(() => {
+    removeStamp(pendingIndex);
+    detailOverlay.classList.remove('show');
+    pendingIndex = null;
+  });
 });
 
 /* ---------- 重置整張卡 ---------- */
 document.getElementById('resetBtn').addEventListener('click', () => {
-  if (!confirm('確定要重置整張集點卡嗎？這會清空所有人的進度，且無法復原。')) return;
-  resetAll();
+  askConfirm(() => resetAll(), '重製了喔');
 });
 
 document.getElementById('closeGrad').addEventListener('click', () => {
   gradOverlay.classList.remove('show');
+});
+
+document.getElementById('closeOrder').addEventListener('click', () => {
+  orderOverlay.classList.remove('show');
 });
 
 /* ---------- 一律先畫出介面，確保按鈕一定能互動 ---------- */
@@ -488,8 +551,15 @@ if (!isConfigComplete(firebaseConfig)){
     firebaseReady = true;
 
     stampsRef.on('value', (snapshot) => {
-      const data = snapshot.val() || {};
-      state = Array.from({length: TOTAL}, (_, i) => data[i] || null);
+      const data = snapshot.val();
+      if (Array.isArray(data)){
+        state = data;
+      } else if (data){
+        // 防呆：萬一資料被存成物件格式，依 key 排序還原成陣列
+        state = Object.keys(data).sort((a,b) => Number(a) - Number(b)).map(k => data[k]);
+      } else {
+        state = [];
+      }
       buildGrid();
       maybeCelebrate();
     }, (err) => {
